@@ -1,0 +1,11 @@
+*.cyclo
+*.d
+*.o
+*.su
+.cproject
+.mxproject
+.project
+.settings
+.launch
+.elf
+
