@@ -27,17 +27,25 @@
 #define SENSOR_OUT false
 #define SENSOR_DIGITAL false
 #define SENSOR_ANALOG true
-#define SENSOR_INT false
+#define SENSOR_LOCATION_INT false
 #define SENSOR_EXT false
 #define SENSOR_EVT_ON true
 #define SENSOR_EVT_OFF false
+/**
+	Byte0                                       Byte1
+	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
+	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
+	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
+	|         |Stat|SigT| Dir|Poll| E_L|T_H     |  Poll interval (sec)                  |
+	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
+**/
 
-
-#define IS_SENS_IN(x) ((x & 0x01) == 1)
-#define IS_SENS_ANALOG(x) ((x & 0b10) == 0b10)
-#define IS_SENS_EVT_ON(x) ((x & 0b100) == 0b100)
-#define IS_SENS_ON(x) ((x & 0b1000) == 0b1000)
-
+#define IS_SENS_EVT_HIGH(x) ((x & 0x01) == 1)
+#define IS_SENS_EVT_LOW(x)  ((x & 0b10) == 0b10)
+#define IS_SENS_POLL(x)     ((x & 0b100) == 0b100)
+#define IS_SENS_INPUT(x)    ((x & 0b1000) == 0b1000)
+#define IS_SENS_ANALOG(x)   ((x & 0b10000) == 0b10000)
+#define IS_SENS_ON(x)       ((x & 0b100000) == 0b100000)
 
 
 //#define SMH_SENS_TYPE_UNKNOWN 0
@@ -85,7 +93,7 @@ typedef enum  {
 	SW1 = 1,
 	SW2 = 2,
 	SN1 = 3,
-	SN2 =4,
+	SN2 = 4,
 	UTX,
 	RL1,
 	RL2,
@@ -94,81 +102,84 @@ typedef enum  {
 	VREF
 } SensorID_t;
 
-//SensorID_t SensorID;
+typedef struct SMH_SensLinkValues {
+	SensorID_t sensorOnLow;
+	uint16_t valueOnLow;
+	SensorID_t sensorOnHigh;
+	uint16_t valueOnHigh;
+} SMH_SensLinkValues_t;
 
+
+typedef struct SMH_SensValueReply  {
+	uint16_t value;
+	uint16_t vref;
+	int8_t  power_of_ten;
+} SMH_SensValueReply_t;
 
 typedef struct {
 	SensorID_t id;   // The sensor ID map incoming CAN port
-	bool Status;            //   ON / OFF
-	bool SendEvents;        //   Send events on status change
+	bool status;            //   ON / OFF
+	bool isEventOnLow;        //   Send events on status change
+	bool isEventOnHigh;
+	bool isPolling;
 	bool isAnalog;        //   DIGITAL-false / ANALOG-true
-	bool Direction;         //   Signal direction in / out
-	bool Location;          //   Internal or connected
-	bool Locked;            //   Can be reconfigured
-	char Name [SENSOR_NAME_LEN];          //   Sensor name like SW1 SW1 etc
-	SensorType_t SType;     //    Sensor type. Like Voltage, Temperature etc
-	uint16_t ValMultiplyer;
-	uint16_t CheckTime;     //  Sensor poll interval in ms
-	uint16_t  PinNum;
-	char  PinPort;
-	uint16_t TimeCount;
-	uint32_t adc_ch;
-	uint32_t SwTime;
-	uint8_t  SwCurState;
-	uint8_t  adc_rank;
+	bool isInput;         //   Signal direction in / out
+	bool isExternal;          //   Internal or connected
+	bool isLocked;            //   Can be reconfigured
+	char name [SENSOR_NAME_LEN];          //   Sensor name like SW1 SW1 etc
+
+	uint16_t pollingInterval;     //  Polling interval in seconds
+	uint16_t lastPollingTime;      // last pollingsecs  ago
+
+	uint16_t  pinNum;
+	char  pinPort;
+	uint32_t switchTime;  //  Last time was switch event
+	uint8_t  switchCurState;
+	uint32_t adcChannel;
+	uint8_t  adcRank;
+	uint16_t  thLowValue;
+	uint16_t  thHighValue;
+	SMH_SensLinkValues_t linkTo;
 } SMH_SensorDescrTypeDef;
+
 
 struct SMH_SensorListEl {
 	SMH_SensorDescrTypeDef* el;
 	struct SMH_SensorListEl *next;
 
 };
-typedef  struct SMH_SensorListEl SMH_SensorListElTypeDef;
 
-typedef struct  {
-	uint16_t value;
-	uint16_t vref;
-	int8_t  power_of_ten;
-} SMH_SensValueReply_t;
+typedef  struct SMH_SensorListEl SMH_SensorListElTypeDef;
 
 
 //void HAL_GPIO_EXTI_Callback(uint16_t);
 
 void Sensor_DB_Init();
-SMH_SensorDescrTypeDef* Sensor_Init(SensorID_t, char*, bool, bool, bool,bool, uint8_t, uint8_t,uint16_t,uint16_t, char, uint32_t);
+SMH_SensorDescrTypeDef* Sensor_Init(
+		SensorID_t,
+		char*,
+		bool,
+		bool,
+		char,
+		uint16_t,
+		uint32_t
+);
+
 SMH_SensorListElTypeDef* SMH_SensorDB_Add(SMH_SensorListElTypeDef*, SMH_SensorDescrTypeDef*);
 SMH_SensorDescrTypeDef* SMH_SensorGetByID(uint8_t);
 SMH_SensorDescrTypeDef* GetSensorByPinNum(uint16_t);
 
 GPIO_TypeDef* GetPortNum(char);
 
-//SMH_SensorDescrTypeDef* Sensor_Init (SensorID_t,
-//		char*,
-//		bool,
-//		bool,
-//		bool,
-//		bool,
-//		SensorType_t,
-//		uint8_t,
-//		uint16_t,
-//		uint8_t,
-//		char
-//		uint32_t);
-
-
-
 uint8_t Sensor_ON(SMH_SensorDescrTypeDef*);
 uint8_t Sensor_OFF(SMH_SensorDescrTypeDef*);
-//void Sensor_SetAnalogIn(SMH_SensorDescrTypeDef*);
-//void Sensor_SetAnalogOut(SMH_SensorDescrTypeDef*);
-//void Sensor_SetDigitIn(SMH_SensorDescrTypeDef*);
-//void Sensor_SetDigitOut(SMH_SensorDescrTypeDef*);
-uint8_t Sensor_SetPollingOn(SMH_SensorDescrTypeDef*, uint16_t, bool);   // Sensor, time_interval, sendEvent
+uint8_t Sensor_SetPolling(SMH_SensorDescrTypeDef*, uint16_t);
 SMH_SensValueReply_t* SMH_SensorGetValue(SMH_SensorDescrTypeDef*);
 
 void SMH_SensorDOPolling();
 void SMH_ADC_RunConversation();
 uint8_t SMH_SensorSwitch(SMH_SensorDescrTypeDef*, uint8_t);
+uint8_t SMHome_SetSensorLink(CanAddr*, SensorID_t, uint8_t*, uint8_t);
 
 #ifdef TMPSENSOR_CALC_INTERNAL
 	double TMPSENSOR_getTemperature(uint16_t, uint16_t);

@@ -55,9 +55,9 @@ void SMHome_InputSelector(CanPacket* pkt) {
 		rc = SMHome_SwitchSensorState(reply_to_addr,from,pkt->data[0]);
 		break;
 
-//	case CAN_CMD_LINK_SENS:
-//		rc = SMHome_SensorLink(reply_to_addr, pkt->dest.port, pkt->data, pkt->len);
-//		break;
+	case CAN_CMD_LINK_SENS:
+//		rc = SMHome_SetSensorLink(reply_to_addr, pkt->dest.port, pkt->data, pkt->len);
+		break;
 	default:
 		rc = RC_CAN_UNKNOWN_CMD;
 	}
@@ -238,42 +238,41 @@ uint8_t SMHome_NetConf(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_
 		}
 		else {
 			// Get SensorType
-			sensor->SType = (SensorType_t) data[1];
 
-			if ( ! sensor->Locked) {
+			if ( ! sensor->isLocked) {
 
 				if ( IS_SENS_ANALOG(data[0]) )
 					sensor->isAnalog = true;
 				else
 					sensor->isAnalog = false;
 
-				if (IS_SENS_IN(data[0]))
-					sensor->Direction = SENSOR_IN;
+				if (IS_SENS_INPUT(data[0]))
+					sensor->isInput = true;
 				else
-					sensor->Direction = SENSOR_OUT;
+					sensor->isInput = false;
+
 			}
 
-			if ( len >=6 ) {  // Get Timeout
-				sensor->CheckTime = (data[4] << 8) | data[5];
+			sensor->isPolling = IS_SENS_POLL(data[0]);
+			if ( len >= 3) {
+
+				sensor->pollingInterval = data[1] << 8;
+				sensor->pollingInterval = sensor->pollingInterval | (data[2] & 0xFF);
 			}
-			else {
-				sensor->CheckTime = 0;
+
+			if ( sensor->isInput && sensor->isPolling)
+				rc = Sensor_SetPolling(sensor, sensor->pollingInterval);
+
+			sensor->isEventOnLow = IS_SENS_EVT_LOW(data[0]);
+			if ( len >=5) {
+				sensor->thLowValue = data[3] << 8;
+				sensor->thLowValue = sensor->thLowValue | (data[4] & 0xFF);
 			}
 
-			if ((sensor->Direction == SENSOR_IN ) &&
-					(IS_SENS_EVT_ON(data[0]) != sensor->SendEvents )) {
-
-//				if (IS_SENS_EVT_ON(data[0])) {
-				rc = Sensor_SetPollingOn(sensor, sensor->CheckTime, IS_SENS_EVT_ON(data[0]));
-//				}
-//				else {
-//					rc = Sensor_SetPollingOn(sensor, sensor->CheckTime, false);
-//				}
-
-				//  moved inside Sensor_SetPollingOn
-//				if (sensor->isAnalog)
-//					SMH_ADC_RunConversation();
-
+			sensor->isEventOnHigh = IS_SENS_EVT_HIGH(data[0]);
+			if ( len >=7) {
+				sensor->thHighValue = data[5] << 8;
+				sensor->thHighValue = sensor->thHighValue | (data[6] & 0xFF);
 			}
 
 			if (rc == IS_OK) {
@@ -286,6 +285,7 @@ uint8_t SMHome_NetConf(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_
 			}
 		}
 	}
+
 	if (rc == IS_OK) {
 		SMHome_SendSensorConf(reply_to, &from);
 	}
@@ -307,38 +307,37 @@ uint8_t SMHome_SendSensorConf(CanAddr* send_to, CanAddr* from) {
 	CAN_TxHeaderTypeDef *TxHeaderPtr;
 	SMH_SensorDescrTypeDef *sensor;
 	sensor = GetSensorByID((SensorID_t)from->port);
-
-//	TxHeaderPtr = CAN_TxHeader_Create(send_to, from, CAN_CMD_GET_STATE, true);
 	TxHeaderPtr = CAN_TxHeader_Create(send_to, from, CAN_CMD_GET_CONFIG, true);
-//	TxHeaderPtr->ExtId = TxHeaderPtr->ExtId | CANID_SET_REPLY(1);  // CAN_CMD_GET_CONFIG
 
-	for (int i=0; i < 8; i++) {
+	for (int i=0; i < 8; i++) {  // Clear data bytes
 		TxData[i] = 0;
 	}
 
-	if ( sensor->Direction == SENSOR_IN) {
+	if ( sensor->isEventOnHigh )
 		TxData[0] =  TxData[0] | 0x1;
-	}
-	if ( sensor->isAnalog) {
+	if ( sensor->isEventOnLow )
 		TxData[0] =  TxData[0] | 0b10;
-	}
-	if (  sensor->SendEvents == SENSOR_EVT_ON ) {
+	if ( sensor->isPolling )
 		TxData[0] =  TxData[0] | 0b100;
-	}
-	if ( sensor->Status == SENSOR_UP ) {
+	if ( sensor->isInput )
 		TxData[0] =  TxData[0] | 0b1000;
-	}
+	if ( sensor->isAnalog )
+		TxData[0] =  TxData[0] | 0b10000;
+	if ( sensor->status )
+		TxData[0] =  TxData[0] | 0b100000;
 
-	TxData[1] = sensor->SType & 0xff;
 
 	// Get Timeout
-	TxData[4] = sensor->CheckTime >> 8;
-	TxData[5] = sensor->CheckTime & 0xf;
+	TxData[1] = sensor->pollingInterval >> 8;
+	TxData[2] = sensor->pollingInterval & 0xFF;
 
-	TxData[6] = sensor->ValMultiplyer >> 8;
-	TxData[7] = sensor->ValMultiplyer & 0xf;
+	TxData[3] = sensor->thLowValue >> 8;
+	TxData[4] = sensor->thLowValue & 0xFF;
 
-	TxHeaderPtr->DLC = 8;
+	TxData[5] = sensor->thHighValue >> 8;
+	TxData[6] = sensor->thHighValue & 0xFF;
+
+	TxHeaderPtr->DLC = 7;
 
     if ( CAN_Send_Packet(TxHeaderPtr,TxData) != IS_OK) {
     	return RC_CAN_TRANSMIT_ERR;
@@ -433,7 +432,7 @@ uint8_t SMHome_SwitchSensorState(CanAddr* send_to, CanAddr* from, uint8_t value)
 	SMH_SensorDescrTypeDef *sensor;
 	sensor = GetSensorByID((SensorID_t)from->port);
 
-	if (sensor->Status == SENSOR_ON)
+	if (sensor->status == SENSOR_ON)
 		rc = SMH_SensorSwitch(sensor, value);
 	else {
 		rc = RC_SENSOR_OFF_ERR;
@@ -484,5 +483,32 @@ uint8_t SMHome_SendError(CanAddr* send_to, CanAddr* from, uint16_t rc_value) {
 
 	return IS_OK;
 }
+
+uint8_t SMHome_SetSensorLink(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_t len){
+
+	CanAddr from;
+	from.addr = THIS_CANID;
+	from.port = id;
+
+	SMH_SensorDescrTypeDef *sensor;
+	sensor = GetSensorByID(id);
+
+	if (sensor == NULL) {
+		SMHome_SendError(reply_to, &from, RC_SENSOR_NOT_FOUND);
+		return RC_SENSOR_NOT_FOUND;
+	}
+
+	if (len >= 3) {
+		sensor->linkTo.sensorOnLow = data[0];
+		sensor->linkTo.valueOnLow =  (data[1] << 8) | (data[2] & 0xFF);
+	}
+	if (len >= 6) {
+		sensor->linkTo.sensorOnHigh = data[3];
+		sensor->linkTo.valueOnHigh =  (data[4] << 8) | (data[5] & 0xFF);
+	}
+
+	return IS_OK;
+}
+
 
 
