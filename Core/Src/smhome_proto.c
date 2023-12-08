@@ -21,9 +21,7 @@ CanPacket* pkt = NULL;
  * @param q_get
  */
 void SMHome_InputSelector(CanPacket* pkt) {
-
 	uint8_t rc = 0;
-
 	CanAddr from_me;
 	from_me.port = pkt->dest.port; // We receive request for this port (sensor)
 	from_me.addr = THIS_CANID;
@@ -55,8 +53,8 @@ void SMHome_InputSelector(CanPacket* pkt) {
 		rc = SMHome_SwitchSensorState(reply_to_addr,from,pkt->data[0]);
 		break;
 
-	case CAN_CMD_LINK_SENS:
-//		rc = SMHome_SetSensorLink(reply_to_addr, pkt->dest.port, pkt->data, pkt->len);
+	case CAN_CMD_SET_SENS_THRESHOLD:
+		rc = SMHome_NetConfThreshold(reply_to_addr, pkt->dest.port, pkt->data, pkt->len);
 		break;
 	default:
 		rc = RC_CAN_UNKNOWN_CMD;
@@ -264,16 +262,8 @@ uint8_t SMHome_NetConf(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_
 				rc = Sensor_SetPolling(sensor, sensor->pollingInterval);
 
 			sensor->isEventOnLow = IS_SENS_EVT_LOW(data[0]);
-			if ( len >=5) {
-				sensor->thLowValue = data[3] << 8;
-				sensor->thLowValue = sensor->thLowValue | (data[4] & 0xFF);
-			}
-
 			sensor->isEventOnHigh = IS_SENS_EVT_HIGH(data[0]);
-			if ( len >=7) {
-				sensor->thHighValue = data[5] << 8;
-				sensor->thHighValue = sensor->thHighValue | (data[6] & 0xFF);
-			}
+
 
 			if (rc == IS_OK) {
 				if ( IS_SENS_ON(data[0])) {
@@ -289,13 +279,60 @@ uint8_t SMHome_NetConf(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_
 	if (rc == IS_OK) {
 		SMHome_SendSensorConf(reply_to, &from);
 	}
-	else {
-		SMHome_SendError(reply_to, &from, rc);
-	}
 
 	return rc;
 
 }
+
+/**
+ *
+ *  Add threshold rules for sensor
+ *
+ * @param reply_to
+ * @param id
+ * @param data
+ * @param len
+ * @return
+ */
+uint8_t SMHome_NetConfThreshold(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_t len) {
+
+	uint8_t rc = IS_OK;
+//	CanAddr from;
+//	from.addr = THIS_CANID;
+//	from.port = id;
+
+	SMH_SensorDescrTypeDef *sensor;
+	sensor = GetSensorByID(id);
+
+	bool isON = (data[0] >> 7 == 1);
+	bool isToLow = (data[0] >> 6 == 1);
+	uint8_t ruleId = (data[0] & 0b00111111);
+
+	if (! isON) {
+		Sensor_ClearThreshold(sensor,ruleId);
+	}
+	else if (len >= 4) {
+		uint16_t thValue = 0;
+		uint16_t sensorValue = 0;
+		uint8_t sensorId = 0;
+
+		if ( len >= 3)
+			thValue = data[1] << 8 | data[2];
+		if ( len >= 4)
+			sensorId = data[3];
+		if ( len >= 6)
+			sensorValue = data[4] << 8 | data[5];
+
+		//TODO: sensorId - check  sensor ID enum
+
+		rc = Sensor_SetThreshold(sensor, ruleId, isToLow, thValue, sensorId, sensorValue);
+
+	}
+
+	return rc;
+}
+
+
 
 /**
  *  Send current sensor configuration
@@ -331,13 +368,7 @@ uint8_t SMHome_SendSensorConf(CanAddr* send_to, CanAddr* from) {
 	TxData[1] = sensor->pollingInterval >> 8;
 	TxData[2] = sensor->pollingInterval & 0xFF;
 
-	TxData[3] = sensor->thLowValue >> 8;
-	TxData[4] = sensor->thLowValue & 0xFF;
-
-	TxData[5] = sensor->thHighValue >> 8;
-	TxData[6] = sensor->thHighValue & 0xFF;
-
-	TxHeaderPtr->DLC = 7;
+	TxHeaderPtr->DLC = 3;
 
     if ( CAN_Send_Packet(TxHeaderPtr,TxData) != IS_OK) {
     	return RC_CAN_TRANSMIT_ERR;
@@ -437,8 +468,6 @@ uint8_t SMHome_SwitchSensorState(CanAddr* send_to, CanAddr* from, uint8_t value)
 	else {
 		rc = RC_SENSOR_OFF_ERR;
 	}
-	SMHome_SendError(send_to, from, rc);
-
 	return rc;
 }
 
@@ -478,37 +507,12 @@ uint8_t SMHome_SendError(CanAddr* send_to, CanAddr* from, uint16_t rc_value) {
 	TxHeaderPtr->DLC = 2;
 
     if ( CAN_Send_Packet(TxHeaderPtr,TxData) != IS_OK) {
-    	return RC_CAN_TRANSMIT_ERR;
+//    	return RC_CAN_TRANSMIT_ERR;
     }
 
 	return IS_OK;
 }
 
-uint8_t SMHome_SetSensorLink(CanAddr* reply_to, SensorID_t id, uint8_t data[] , uint8_t len){
-
-	CanAddr from;
-	from.addr = THIS_CANID;
-	from.port = id;
-
-	SMH_SensorDescrTypeDef *sensor;
-	sensor = GetSensorByID(id);
-
-	if (sensor == NULL) {
-		SMHome_SendError(reply_to, &from, RC_SENSOR_NOT_FOUND);
-		return RC_SENSOR_NOT_FOUND;
-	}
-
-	if (len >= 3) {
-		sensor->linkTo.sensorOnLow = data[0];
-		sensor->linkTo.valueOnLow =  (data[1] << 8) | (data[2] & 0xFF);
-	}
-	if (len >= 6) {
-		sensor->linkTo.sensorOnHigh = data[3];
-		sensor->linkTo.valueOnHigh =  (data[4] << 8) | (data[5] & 0xFF);
-	}
-
-	return IS_OK;
-}
 
 
 

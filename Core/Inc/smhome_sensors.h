@@ -102,13 +102,26 @@ typedef enum  {
 	VREF
 } SensorID_t;
 
-typedef struct SMH_SensLinkValues {
-	SensorID_t sensorOnLow;
-	uint16_t valueOnLow;
-	SensorID_t sensorOnHigh;
-	uint16_t valueOnHigh;
-} SMH_SensLinkValues_t;
 
+/**
+ *
+ *      Threshold list element
+ *
+ */
+typedef struct SMH_SensorThreshold {
+	uint8_t ruleId;
+	bool   isToLow;        //   true - from High to Low  /  false - from Low to High
+	uint16_t thVaue;
+	SensorID_t sensorId;
+	uint16_t sensorValue;
+	struct SMH_SensorThreshold *next;
+} SMH_SensorThreshold_t;
+
+
+/**
+ *
+ *   Sensor value sending to master
+ */
 
 typedef struct SMH_SensValueReply  {
 	uint16_t value;
@@ -116,39 +129,50 @@ typedef struct SMH_SensValueReply  {
 	int8_t  power_of_ten;
 } SMH_SensValueReply_t;
 
+
+/**
+ *
+ *    Main sensor properties
+ *
+ */
+
 typedef struct {
-	SensorID_t id;   // The sensor ID map incoming CAN port
-	bool status;            //   ON / OFF
-	bool isEventOnLow;        //   Send events on status change
+	SensorID_t id;                 // The sensor ID map incoming CAN port
+	bool status;                   //   ON / OFF
+	bool isEventOnLow;             //   Send events on status change
 	bool isEventOnHigh;
 	bool isPolling;
-	bool isAnalog;        //   DIGITAL-false / ANALOG-true
-	bool isInput;         //   Signal direction in / out
-	bool isExternal;          //   Internal or connected
-	bool isLocked;            //   Can be reconfigured
-	char name [SENSOR_NAME_LEN];          //   Sensor name like SW1 SW1 etc
+	bool isAnalog;                 //   DIGITAL-false / ANALOG-true
+	bool isInput;                  //   Signal direction in / out
+	bool isExternal;               //   Internal or connected
+	bool isLocked;                 //   Can be reconfigured
+	char name [SENSOR_NAME_LEN];   //   Sensor name like SW1 SW1 etc
 
-	uint16_t pollingInterval;     //  Polling interval in seconds
-	uint16_t lastPollingTime;      // last pollingsecs  ago
+	uint16_t pollingInterval;      //  Polling interval in seconds
+	uint16_t lastPollingTime;      //  last pollingsecs  ago
 
 	uint16_t  pinNum;
 	char  pinPort;
-	uint32_t switchTime;  //  Last time was switch event
+	uint32_t switchTime;           //  Last time was switch event
 	uint8_t  switchCurState;
 	uint32_t adcChannel;
 	uint8_t  adcRank;
-	uint16_t  thLowValue;
-	uint16_t  thHighValue;
-	SMH_SensLinkValues_t linkTo;
+
+	struct SMH_SensorThreshold *thList;
+
 } SMH_SensorDescrTypeDef;
 
+
+
+/**
+ *   Sensors DB record
+ */
 
 struct SMH_SensorListEl {
 	SMH_SensorDescrTypeDef* el;
 	struct SMH_SensorListEl *next;
 
 };
-
 typedef  struct SMH_SensorListEl SMH_SensorListElTypeDef;
 
 
@@ -175,6 +199,10 @@ uint8_t Sensor_ON(SMH_SensorDescrTypeDef*);
 uint8_t Sensor_OFF(SMH_SensorDescrTypeDef*);
 uint8_t Sensor_SetPolling(SMH_SensorDescrTypeDef*, uint16_t);
 SMH_SensValueReply_t* SMH_SensorGetValue(SMH_SensorDescrTypeDef*);
+uint8_t Sensor_SetThreshold(SMH_SensorDescrTypeDef* sensor, uint8_t, bool,
+		uint16_t, SensorID_t, uint16_t);
+uint8_t Sensor_ClearThreshold(SMH_SensorDescrTypeDef*, uint8_t);
+uint8_t SMH_SensorDOThresholds(SMH_SensorDescrTypeDef*, bool);
 
 void SMH_SensorDOPolling();
 void SMH_ADC_RunConversation();

@@ -34,5 +34,6 @@ uint8_t SMHome_SendSensorValue(SensorID_t, SMH_SensValueReply_t*);
 uint8_t SMHome_ReplySensorValue(CanAddr*, CanAddr*);
 uint8_t SMHome_SwitchSensorState(CanAddr*, CanAddr*, uint8_t);
 uint8_t SMHome_SendError(CanAddr*, CanAddr*, uint16_t);
+uint8_t SMHome_NetConfThreshold(CanAddr*, SensorID_t, uint8_t*, uint8_t);
 
 #endif /* INC_SMHOME_PROTO_H_ */

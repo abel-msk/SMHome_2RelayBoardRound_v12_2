@@ -114,18 +114,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	if ((sensor != NULL) && ( ! sensor->isAnalog) && sensor->isInput) {
 
-		SMH_SensValueReply_t polled;
-		polled.value = HAL_GPIO_ReadPin(GetPortNum(sensor->pinPort), sensor->pinNum);
+		SMH_SensValueReply_t state;
+		state.value = HAL_GPIO_ReadPin(GetPortNum(sensor->pinPort), sensor->pinNum);
 
-		if (((sensor->isEventOnLow) && (polled.value == 0))  ||
-				((sensor->isEventOnHigh) && (polled.value == 1))) {
+		if ((getUpTime() - sensor->switchTime ) > 200 ) {
+			SMH_SensorDOThresholds(sensor,state.value==0);    // value==0  toLow, value==1  toHigh
 
-
-			if ((getUpTime() - sensor->switchTime ) > 200 ) {
-				SMHome_SendSensorValue(sensor->id, &polled);
-				sensor->switchCurState = polled.value;
-				sensor->switchTime = getUpTime();
+			if (((sensor->isEventOnLow) && (state.value == 0))  ||
+					((sensor->isEventOnHigh) && (state.value == 1))) {
+				SMHome_SendSensorValue(sensor->id, &state);
 			}
+
+			sensor->switchCurState = state.value;
+			sensor->switchTime = getUpTime();
+
 		}
 	}
 }
@@ -164,10 +166,9 @@ SMH_SensorListElTypeDef* SMH_SensorDB_Add(SMH_SensorListElTypeDef* last_el, SMH_
 	return el;
 }
 
-
 /**
 record = Sensor_Init(SN1,"SN1",SENSOR_DIGITAL,SENSOR_IN, 'B', GPIO_PIN_2, ADC_CHANNEL_0);
-*/
+ */
 
 /**
  *
@@ -247,9 +248,9 @@ uint8_t Sensor_SetPolling(SMH_SensorDescrTypeDef* sensor, uint16_t period) {
 	if ( sensor->isAnalog ) {
 		SMH_ADC_RunConversation();
 	}
-
 	return rc;
 }
+
 
 /**
  * @brief Configure sensor threshold events
@@ -260,19 +261,118 @@ uint8_t Sensor_SetPolling(SMH_SensorDescrTypeDef* sensor, uint16_t period) {
  * @param isLow
  * @param TH_Low
  */
-uint8_t Sensor_SetEvents(SMH_SensorDescrTypeDef* sensor, bool isHigh ,uint16_t TH_High, bool isLow, uint16_t TH_Low ) {
+uint8_t Sensor_SetEvents(SMH_SensorDescrTypeDef* sensor, bool isHigh, bool isLow) {
 
 	if ( ! sensor->isInput ) {
 		return RC_SENSOR_WRONG_TYPE;
 	}
 
-	sensor->thLowValue = TH_Low;
-	sensor->thHighValue = TH_High;
 	sensor->isEventOnHigh = isHigh;
 	sensor->isEventOnLow = isLow;
 
 	return IS_OK;
 }
+
+
+/**
+ *     Add record to sensors thresholds list
+ * @param sensor
+ * @param isToLow
+ * @param toSensID
+ * @param toSensValue
+ * @return
+ */
+
+uint8_t Sensor_SetThreshold(SMH_SensorDescrTypeDef* sensor,
+		uint8_t ruleId,
+		bool isToLow,
+		uint16_t thValue,
+		SensorID_t sensorId,
+		uint16_t sensorValue ) {
+
+	SMH_SensorThreshold_t* threshold = NULL;
+
+
+	if   ( ! sensor->isInput ) {
+		return RC_SENSOR_WRONG_TYPE;
+	}
+
+	threshold = (SMH_SensorThreshold_t*) malloc(sizeof(SMH_SensorThreshold_t));
+	if (threshold == NULL) {
+		return RC_NO_MEM;
+	}
+	threshold->ruleId = ruleId;
+	threshold->next = NULL;
+	threshold->isToLow = isToLow;
+	threshold->thVaue = thValue;
+	threshold->sensorId = sensorId;
+	threshold->sensorValue = sensorValue;
+
+
+	if (sensor->thList == NULL ) {
+		sensor->thList = threshold;
+	}
+	else {
+		SMH_SensorThreshold_t* curr = sensor->thList;
+		SMH_SensorThreshold_t* lastInList;
+		bool isRuleFound = false;
+
+		while (curr != NULL) {
+			if ( curr->ruleId == ruleId) {
+				curr->isToLow = isToLow;
+				curr->thVaue = thValue;
+				curr->sensorId = sensorId;
+				curr->sensorValue = sensorValue;
+				free(threshold);
+				threshold = curr;
+				isRuleFound = true;
+				break;
+			}
+			lastInList = curr;
+			curr = curr->next;
+		}
+		if ( ! isRuleFound ) {
+			lastInList->next = threshold;
+		}
+	}
+	return IS_OK;
+}
+
+
+/**
+ *
+ * Remove sensor Threshold record (ruleId)  from list
+ *
+ * @param sensor
+ * @param ruleId
+ * @return
+ */
+uint8_t Sensor_ClearThreshold(SMH_SensorDescrTypeDef* sensor, uint8_t ruleId) {
+
+	if (sensor->thList == NULL ) {
+		return IS_OK;
+	}
+
+	SMH_SensorThreshold_t* curr = sensor->thList;
+	SMH_SensorThreshold_t* prev = NULL;
+
+	while (curr != NULL) {
+		if (curr->ruleId == ruleId) {
+			if (prev == NULL) {              //  if 'prev' no defined it mean we are on first element
+				sensor->thList = curr->next;
+			}
+			else {
+				prev->next = curr->next;
+			}
+			free(curr);
+			break;
+		}
+		prev = curr;
+		curr = curr->next;
+	}
+	return IS_OK;
+}
+
 
 /**
  * Switch sensor OFF
@@ -335,12 +435,12 @@ uint8_t Sensor_ON(SMH_SensorDescrTypeDef* sensor) {
 	HAL_GPIO_DeInit(GetPortNum(sensor->pinPort),sensor->pinPort);
 	GPIO_InitStruct.Pin = sensor->pinNum;
 
-//	if ( sensor->pinNum == GPIO_PIN_1 ) {
-//		HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-//	}
-//	else if (sensor->pinNum == GPIO_PIN_2 ) {
-//		HAL_NVIC_DisableIRQ(EXTI2_IRQn);
-//	}
+	//	if ( sensor->pinNum == GPIO_PIN_1 ) {
+	//		HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+	//	}
+	//	else if (sensor->pinNum == GPIO_PIN_2 ) {
+	//		HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+	//	}
 
 	/**
 	 *     Setup ANALOG pin/port settings
@@ -513,7 +613,7 @@ void SMH_ADC_RunConversation() {
 
 /**
  *
- *  Loop through all pulling sensors, get value end send over CAN
+ *  Loop through all polled sensors, get value end send over CAN
  *  Called from main loop.
  *
  */
@@ -555,6 +655,37 @@ void SMH_SensorDOPolling() {
 		sensor_ptr = sensor_ptr->next;
 	}
 }
+
+/**
+ *
+ *  On sensor Event  check  thresholds and perform action on connected sensor (if exist)
+ *
+ * @param sensor
+ * @param changeDirection
+ * @return
+ */
+uint8_t SMH_SensorDOThresholds(SMH_SensorDescrTypeDef* sensor, bool changeDirection) {
+
+	SMH_SensorThreshold_t *thCurrent = sensor->thList;
+
+	while ( thCurrent != NULL) {
+		if ((thCurrent->sensorId > BOARD) && (thCurrent->sensorId < VREF) && (thCurrent->isToLow == changeDirection)) {
+
+			SMH_SensorDescrTypeDef*  toSensor = GetSensorByID(thCurrent->sensorId);
+			if ((toSensor != NULL) && ( ! toSensor->isInput)) {
+				if ( toSensor->isAnalog ) {
+					// TODO: DO Threshold for analog sensor.
+				}
+				else{
+					SMH_SensorSwitch(toSensor,thCurrent->sensorValue);
+				}
+			}
+		}
+	}
+	return IS_OK;
+}
+
+
 
 
 // https://electronics.stackexchange.com/questions/324321/reading-internal-temperature-sensor-stm32

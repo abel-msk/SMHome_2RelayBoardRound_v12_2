@@ -155,17 +155,16 @@
 	cmd: 0x03  Request
 
 
-	Sensor ID id;   // The sensor ID map incoming CAN port
+	Sensor ID id;      // The sensor ID map incoming CAN port
 
-	stat  - Status;            //   ON = 1  / OFF = 0
-	SignalType;        //   ANALOG = 1 / DIGITAL = 0
-	Direction;         //   Signal direction in = 1 / out = 0
-	Poll               //   Do Polling
-	E_L                //   Send event on switch from high to low value
-	E_H                //   Send event on switch from low to high value
+	Stat  - Status;    //   ON = 1  / OFF = 0
+	SigT;              //   ANALOG = 1 / DIGITAL = 0
+	Dir;               //   Signal direction in = 1 / out = 0
+	Poll               //   Do Polling  1 -enable / 0 disable
+	E_L                //   Send can event packet on switch from high to low value
+	E_H                //   Send can event packet on switch from low to high value
 
-	SType;             //   Sensor type. Like Voltage, Temperature etc
-	PollingTime;       //   Sensor poll interval in sec
+	Poll interval ;    //   Sensor poll interval in sec
 
 
 
@@ -180,21 +179,21 @@
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-	|         Poll interval (sec)               |             TH_Low                    |
+	|         Poll interval (sec)               |
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 	Byte4                                       Byte5
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-	                       TH_Low                        TH_High
+
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 	Byte6                                       Byte7
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-               TH_High
+
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 
@@ -215,24 +214,23 @@
 
 
 
-
-
-	Configure Sensor threshold values (CAN_CMD_LINK_SENS)
+	Configure Sensor threshold values (CAN_CMD_THRESHOLD)
 	=====================================================
 
+	ST                -  1 ON  /  0 OFF
+	H|L               -  1 Low  / 0 High
+	TH_ID             -  Threshold id for this sensor
+	TH_VALUE (2byte)  -  Threshold value
 
-	Dir Flag:   1  - From High to LOw
-	Dir Flag:   0  - From LOw to High
-
-	ST Flag:    1  - ON
-	Dir Flag:   0  - OFF
+	LINK_SENSOR_ID    -  if present,  change  value on pointed sensor
+	LINK_SENSOR_VALUE  -  Set value on sensor with LINK_SENSOR_ID
 
 
 	Byte0                                       Byte1
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-    |    ON Event ToLow  Dev id                 |   ON Event TO_LOW set value 1
+    | ST |H|L |       TH_ID                     |   TH_VALUE 1
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 
@@ -240,21 +238,21 @@
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-    ON Event ToLow set value 1
+      TH_VALUE 2                                   LINK_SENSOR_ID
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 	Byte4                                       Byte5
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-	            ID OUT                                     Value to SET
+	            LINK_SENSOR_VALUE                            LINK_SENSOR_VALUE
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 	Byte6                                       Byte7
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 	|bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|   |bit7|bit6|bit5|bit4|bit3|bit2|bit1|bit0|
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
-			Value to SET
+
 	+----+----+----+----+----+----+----+----+   +----+----+----+----+----+----+----+----+
 
 
@@ -451,9 +449,9 @@ typedef enum  {
 	CAN_CMD_GET_CONFIG = 3,
 	CAN_CMD_SET_CONFIG = 4,
 
-	CAN_CMD_LINK_SENS = 5,
-	CAN_CMD_SAVE_SENS = 6,
+	CAN_CMD_SET_SENS_THRESHOLD = 5,
 
+	CAN_CMD_SAVE_SENS = 6,
 	CAN_CMD_SEND_SENS_VALUE = 7,
 	CAN_CMD_SET_SENS_VALUE = 8,
 
